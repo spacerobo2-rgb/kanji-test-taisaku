@@ -7,41 +7,133 @@
 <title>漢字テスト</title>
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;width:100%;height:100%;background:#fafafa;color:#222;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif}
-#app{min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 22px;user-select:none;cursor:pointer}
-#count{position:fixed;top:calc(18px + env(safe-area-inset-top));left:0;right:0;text-align:center;font-size:16px;color:#888}
-#sentence{width:100%;max-width:640px;text-align:center;font-size:clamp(24px,7vw,34px);line-height:1.7;font-weight:500}
-#target{display:block;font-size:clamp(52px,16vw,88px);font-weight:800;line-height:1.25;margin:12px 0}
-#hint{position:fixed;bottom:calc(28px + env(safe-area-inset-bottom));left:0;right:0;text-align:center;font-size:15px;color:#999}
+html,body{
+  margin:0;width:100%;height:100%;
+  background:#fafafa;color:#222;
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif
+}
+#app{
+  min-height:100svh;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  padding:30px 22px;
+  user-select:none;
+}
+#top{
+  position:fixed;
+  top:calc(14px + env(safe-area-inset-top));
+  left:18px;right:18px;
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:15px;color:#777;
+}
+#resetBtn{
+  border:1px solid #ccc;background:#fff;border-radius:10px;
+  padding:7px 10px;font-size:13px;color:#666;
+}
+#sentence{
+  width:100%;max-width:640px;
+  text-align:center;
+  font-size:clamp(24px,7vw,34px);
+  line-height:1.7;font-weight:500;
+}
+#target{
+  display:block;
+  font-size:clamp(52px,16vw,88px);
+  font-weight:800;line-height:1.25;
+  margin:12px 0;
+}
+#controls{
+  margin-top:34px;
+  display:none;
+  align-items:center;justify-content:center;
+}
+.remember{
+  display:flex;align-items:center;gap:10px;
+  font-size:20px;font-weight:700;
+  padding:14px 20px;
+  border:2px solid #bbb;border-radius:16px;
+  background:#fff;
+  cursor:pointer;
+}
+.remember input{
+  width:24px;height:24px;
+}
+#hint{
+  position:fixed;
+  bottom:calc(28px + env(safe-area-inset-bottom));
+  left:0;right:0;
+  text-align:center;
+  font-size:15px;color:#999;
+}
 .finish{font-size:clamp(42px,13vw,68px);font-weight:800}
-.sub{font-size:18px;color:#888;margin-top:20px}
+.sub{font-size:18px;color:#888;margin-top:20px;line-height:1.8}
 </style>
 </head>
 <body>
 <div id="app">
-  <div id="count"></div>
+  <div id="top">
+    <div id="count"></div>
+    <button id="resetBtn">覚えたをリセット</button>
+  </div>
+
   <div id="sentence">読み込み中…</div>
+
+  <div id="controls">
+    <label class="remember">
+      <input type="checkbox" id="learnedCheck">
+      覚えた
+    </label>
+  </div>
+
   <div id="hint"></div>
 </div>
+
 <script>
-const app=document.getElementById("app");
-const count=document.getElementById("count");
-const sentence=document.getElementById("sentence");
-const hint=document.getElementById("hint");
-let WORDS=[],quiz=[],i=0,answer=false,finished=false;
+const app = document.getElementById("app");
+const count = document.getElementById("count");
+const sentence = document.getElementById("sentence");
+const hint = document.getElementById("hint");
+const controls = document.getElementById("controls");
+const learnedCheck = document.getElementById("learnedCheck");
+const resetBtn = document.getElementById("resetBtn");
+
+let WORDS = [];
+let quiz = [];
+let i = 0;
+let answerVisible = false;
+let finished = false;
+
+const STORAGE_KEY = "kanji_learned_v1";
+
+function getLearned(){
+  try{
+    return new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]").map(String));
+  }catch(e){
+    return new Set();
+  }
+}
+
+function saveLearned(set){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
+}
 
 function parseCSVLine(line){
   const out=[]; let cur="", quoted=false;
   for(let p=0;p<line.length;p++){
     const c=line[p];
-    if(c==='"'){
-      if(quoted && line[p+1]==='"'){cur+='"';p++;}
-      else quoted=!quoted;
-    }else if(c===',' && !quoted){out.push(cur);cur="";}
-    else cur+=c;
+    if(c === '"'){
+      if(quoted && line[p+1] === '"'){ cur += '"'; p++; }
+      else quoted = !quoted;
+    }else if(c === ',' && !quoted){
+      out.push(cur); cur="";
+    }else{
+      cur += c;
+    }
   }
-  out.push(cur); return out;
+  out.push(cur);
+  return out;
 }
+
 function shuffle(a){
   a=[...a];
   for(let x=a.length-1;x>0;x--){
@@ -50,40 +142,164 @@ function shuffle(a){
   }
   return a;
 }
+
 async function load(){
   try{
     const r=await fetch("kanji_questions.csv?ts="+Date.now());
-    if(!r.ok)throw new Error();
-    const lines=(await r.text()).replace(/^\uFEFF/,"").trim().split(/\r?\n/);
+    if(!r.ok) throw new Error();
+
+    const lines=(await r.text())
+      .replace(/^\uFEFF/,"")
+      .trim()
+      .split(/\r?\n/);
+
     WORDS=lines.slice(1).map(line=>{
       const c=parseCSVLine(line);
-      return {no:c[0],before:c[1],question:c[2],after:c[3],answer:c[4]};
-    }).filter(x=>x.question&&x.answer);
+      return {
+        no:String(c[0]),
+        before:c[1],
+        question:c[2],
+        after:c[3],
+        answer:c[4]
+      };
+    }).filter(x=>x.question && x.answer);
+
     start();
   }catch(e){
     count.textContent="";
-    sentence.innerHTML="CSVを読み込めません。<br><small>kanji_questions.csv を<br>index.html と同じ場所に置いてください。</small>";
+    sentence.innerHTML=
+      "CSVを読み込めません。<br><small>kanji_questions.csv を<br>index.html と同じ場所に置いてください。</small>";
+    hint.textContent="";
   }
 }
+
+function remainingWords(){
+  const learned=getLearned();
+  return WORDS.filter(q=>!learned.has(q.no));
+}
+
+function start(){
+  quiz=shuffle(remainingWords());
+  i=0;
+  answerVisible=false;
+  finished=false;
+  learnedCheck.checked=false;
+  controls.style.display="none";
+
+  if(quiz.length===0){
+    showAllDone();
+  }else{
+    render(false);
+  }
+}
+
 function render(useAnswer){
   const q=quiz[i];
-  count.textContent=`${i+1} / ${quiz.length}`;
-  const middle=useAnswer?q.answer:q.question;
-  sentence.innerHTML=`<span>${q.before}</span><span id="target">${middle}</span><span>${q.after}</span>`;
-  hint.textContent=useAnswer?"タップして次へ":"タップして答えを見る";
+  const learned=getLearned();
+
+  count.textContent=`残り ${quiz.length - i}問 ／ 全${WORDS.length}問`;
+  const middle=useAnswer ? q.answer : q.question;
+
+  sentence.innerHTML=
+    `<span>${q.before}</span>`+
+    `<span id="target">${middle}</span>`+
+    `<span>${q.after}</span>`;
+
+  if(useAnswer){
+    answerVisible=true;
+    controls.style.display="flex";
+    learnedCheck.checked=learned.has(q.no);
+    hint.textContent="覚えたらチェック → タップして次へ";
+  }else{
+    answerVisible=false;
+    controls.style.display="none";
+    learnedCheck.checked=false;
+    hint.textContent="タップして答えを見る";
+  }
 }
-function start(){quiz=shuffle(WORDS);i=0;answer=false;finished=false;render(false)}
-function finish(){
-  finished=true;count.textContent="";
-  sentence.innerHTML='<div class="finish">おわり！</div><div class="sub">タップでもう一度</div>';
+
+function next(){
+  i++;
+  answerVisible=false;
+  controls.style.display="none";
+  learnedCheck.checked=false;
+
+  if(i>=quiz.length){
+    showFinish();
+  }else{
+    render(false);
+  }
+}
+
+function showFinish(){
+  finished=true;
+  count.textContent="";
+  controls.style.display="none";
+
+  const remain=remainingWords().length;
+
+  if(remain===0){
+    showAllDone();
+  }else{
+    sentence.innerHTML=
+      `<div class="finish">1周おわり！</div>`+
+      `<div class="sub">覚えていない漢字：${remain}問<br>タップでもう一度</div>`;
+    hint.textContent="";
+  }
+}
+
+function showAllDone(){
+  finished=true;
+  count.textContent="";
+  controls.style.display="none";
+  sentence.innerHTML=
+    `<div class="finish">全部覚えた！</div>`+
+    `<div class="sub">「覚えたをリセット」で<br>最初からやり直せます</div>`;
   hint.textContent="";
 }
-app.addEventListener("click",()=>{
-  if(!WORDS.length)return;
-  if(finished){start();return}
-  if(!answer){answer=true;render(true)}
-  else{i++;answer=false;i>=quiz.length?finish():render(false)}
+
+learnedCheck.addEventListener("click",(e)=>{
+  e.stopPropagation();
 });
+
+learnedCheck.addEventListener("change",()=>{
+  if(!answerVisible || !quiz[i]) return;
+
+  const learned=getLearned();
+  const id=String(quiz[i].no);
+
+  if(learnedCheck.checked){
+    learned.add(id);
+  }else{
+    learned.delete(id);
+  }
+  saveLearned(learned);
+
+  const remain=remainingWords().length;
+  count.textContent=`残り ${remain}問 ／ 全${WORDS.length}問`;
+});
+
+resetBtn.addEventListener("click",(e)=>{
+  e.stopPropagation();
+  if(confirm("「覚えた」のチェックを全部リセットしますか？")){
+    localStorage.removeItem(STORAGE_KEY);
+    start();
+  }
+});
+
+app.addEventListener("click",(e)=>{
+  if(e.target===learnedCheck || e.target===resetBtn) return;
+  if(!WORDS.length) return;
+
+  if(finished){
+    start();
+  }else if(!answerVisible){
+    render(true);
+  }else{
+    next();
+  }
+});
+
 load();
 </script>
 </body>
