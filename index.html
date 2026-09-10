@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>漢字テスト</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;background:#fafafa;color:#222;font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Yu Gothic",sans-serif}
+#app{min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 22px;user-select:none;cursor:pointer}
+#count{position:fixed;top:calc(18px + env(safe-area-inset-top));left:0;right:0;text-align:center;font-size:16px;color:#888}
+#sentence{width:100%;max-width:640px;text-align:center;font-size:clamp(24px,7vw,34px);line-height:1.7;font-weight:500}
+#target{display:block;font-size:clamp(52px,16vw,88px);font-weight:800;line-height:1.25;margin:12px 0}
+#hint{position:fixed;bottom:calc(28px + env(safe-area-inset-bottom));left:0;right:0;text-align:center;font-size:15px;color:#999}
+.finish{font-size:clamp(42px,13vw,68px);font-weight:800}
+.sub{font-size:18px;color:#888;margin-top:20px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="count"></div>
+  <div id="sentence">読み込み中…</div>
+  <div id="hint"></div>
+</div>
+<script>
+const app=document.getElementById("app");
+const count=document.getElementById("count");
+const sentence=document.getElementById("sentence");
+const hint=document.getElementById("hint");
+let WORDS=[],quiz=[],i=0,answer=false,finished=false;
+
+function parseCSVLine(line){
+  const out=[]; let cur="", quoted=false;
+  for(let p=0;p<line.length;p++){
+    const c=line[p];
+    if(c==='"'){
+      if(quoted && line[p+1]==='"'){cur+='"';p++;}
+      else quoted=!quoted;
+    }else if(c===',' && !quoted){out.push(cur);cur="";}
+    else cur+=c;
+  }
+  out.push(cur); return out;
+}
+function shuffle(a){
+  a=[...a];
+  for(let x=a.length-1;x>0;x--){
+    const j=Math.floor(Math.random()*(x+1));
+    [a[x],a[j]]=[a[j],a[x]];
+  }
+  return a;
+}
+async function load(){
+  try{
+    const r=await fetch("kanji_questions.csv?ts="+Date.now());
+    if(!r.ok)throw new Error();
+    const lines=(await r.text()).replace(/^\uFEFF/,"").trim().split(/\r?\n/);
+    WORDS=lines.slice(1).map(line=>{
+      const c=parseCSVLine(line);
+      return {no:c[0],before:c[1],question:c[2],after:c[3],answer:c[4]};
+    }).filter(x=>x.question&&x.answer);
+    start();
+  }catch(e){
+    count.textContent="";
+    sentence.innerHTML="CSVを読み込めません。<br><small>kanji_questions.csv を<br>index.html と同じ場所に置いてください。</small>";
+  }
+}
+function render(useAnswer){
+  const q=quiz[i];
+  count.textContent=`${i+1} / ${quiz.length}`;
+  const middle=useAnswer?q.answer:q.question;
+  sentence.innerHTML=`<span>${q.before}</span><span id="target">${middle}</span><span>${q.after}</span>`;
+  hint.textContent=useAnswer?"タップして次へ":"タップして答えを見る";
+}
+function start(){quiz=shuffle(WORDS);i=0;answer=false;finished=false;render(false)}
+function finish(){
+  finished=true;count.textContent="";
+  sentence.innerHTML='<div class="finish">おわり！</div><div class="sub">タップでもう一度</div>';
+  hint.textContent="";
+}
+app.addEventListener("click",()=>{
+  if(!WORDS.length)return;
+  if(finished){start();return}
+  if(!answer){answer=true;render(true)}
+  else{i++;answer=false;i>=quiz.length?finish():render(false)}
+});
+load();
+</script>
+</body>
+</html>
